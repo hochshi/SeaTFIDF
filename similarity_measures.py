@@ -21,7 +21,11 @@ def cosine(mata, matb):
     b_sums = np.array(matb.power(2).sum(axis=0), dtype=np.float64)  # n sums
     denom = np.multiply(np.repeat(a_sums, b_samples).reshape(a_samples, b_samples),
             np.tile(b_sums, a_samples).reshape(a_samples, b_samples))
+    nom_zeros = (0 == nom)
+    denom_zeros = (0 == denom )
+    denom[denom_zeros] = 1
     denom = np.power(denom, -0.5)
+    denom[denom_zeros] = 0
     return np.multiply(nom, denom)
 
 
@@ -122,7 +126,7 @@ def log_similarity(mata, matb, artifact_name):
     return (csim, dsim)
 
 
-def target_similarity_compounds(t_df, mol_map):
+def target_similarity_compounds(t_df, mol_map, extra_details=''):
     # type: (pandas.DataFrame, pandas.DataFrame) -> object
     """
     :param pandas.DataFrame t_df:
@@ -131,17 +135,17 @@ def target_similarity_compounds(t_df, mol_map):
     :param sacred.run.Run _run:
     """
     tc_mat = compound_target_mat(t_df, mol_map)
-    log_self_similarity(tc_mat, 'compound based target similarity')
+    log_self_similarity(tc_mat, '%s compound based target similarity' % extra_details)
 
 
-def target_similarity_cf(t_mat):
+def target_similarity_cf(t_mat, extra_details=''):
     # type: (sparse.csc_matrix) -> object
     """
     :param scipy.sparse.csc_matrix t_mat:
     """
     t_cf_mat = t_mat.copy()
     t_cf_mat.data = np.ones_like(t_cf_mat.data)
-    log_self_similarity(t_cf_mat, 'chemical features based target similarity')
+    log_self_similarity(t_cf_mat, '%s chemical features based target similarity' % extra_details)
 
 
 def tm_df_to_mat(tm_df):
