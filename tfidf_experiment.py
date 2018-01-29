@@ -1,0 +1,200 @@
+# How to run with settings override:
+#
+# from tfidf_experiment import ex
+# filters = [
+#   'filter_target_by_drug_num',
+#   'keep_single_mapping',
+#   'sanitize',
+#   'smiles_largest_frag'
+# ]
+# config_updates = {
+#         'filters.action_list': filters,
+#         'filters.filter_target_by_drug_num': {'cutoff': 9, 'max_phase':4}
+#     }
+# r = ex.run(
+#     config_updates = config_updates
+# )
+
+
+from sacred import Experiment
+from dataset_ingredient import data_ingredient, load_data
+from filter_ingredient import filter_ingredient, filter_data, sanitize_data
+from cf_ingredient import cf_ingredient, smiles_ecfc_mat_parallel, \
+    gen_indices_map, imap, cf_df_to_sp_vec_parallel, create_target_sparse_vectors_parallel
+from log_ingredient import log_ingredient, log_data_structure, log_np_data
+from CMerModel import CMerModel
+from sacred.observers import MongoObserver
+import numpy as np
+from scipy import sparse
+import pandas as pd
+from sklearn.model_selection import KFold
+from similarity_measures import target_similarity_compounds, target_similarity_cf, tfidt_sim, mol_target_sim_pos
+from weights import recommended_weighting_schemes, tfmethods, idfmethods
+
+
+ex = Experiment('tfidf_experiment', ingredients=[data_ingredient, filter_ingredient, cf_ingredient, log_ingredient], interactive=True)
+ex.observers.append(MongoObserver.create())
+
+
+@ex.config
+def config():
+    mol_id = 'MOLREGNO'
+    target_id = 'TARGET_ID'
+    kfcv = False
+
+
+@ex.capture
+def set_model_params(mol_id, target_id):
+    CMerModel.mol_id = mol_id
+    CMerModel.target_id = target_id
+
+def mols_per_target(target_df, tm_df):
+    # type: (pd.DataFrame, pd.DataFrame) -> pd.Series
+    """
+    :param pandas.DataFrame target_df:
+    :param pandas.DataFrame  tm_df:
+    :return pandas.Series :
+    :rtype pandas.DataFrame
+    """
+    return target_df.index.get_level_values(CMerModel.target_id).map(
+        lambda x: np.unique(tm_df.xs(x, level=CMerModel.target_id).index.values)
+    )
+
+
+def add_mol_sp_vec_col(target_df, mols_df, tm_df):
+    # type: (pd.DataFrame, pd.DataFrame, pd.DataFrame) -> pd.DataFrame
+    """
+    :param pandas.DataFrame mols_df:
+    :param pandas.DataFrame target_df:
+    :param pandas.DataFrame  tm_df:
+    :return pandas.DataFrame :
+    :rtype: pandas.DataFrame
+    """
+    target_df.loc[:, CMerModel.target_mols] = mols_per_target(target_df, tm_df)
+    target_df.loc[:, CMerModel.sp_col] = create_target_sparse_vectors_parallel(target_df[CMerModel.target_mols],
+                                                                               mols_df)
+    return target_df
+
+
+def curate_data_set(mols, targets, tm, gen_map=False):
+    mols, targets, tm = filter_data(mols, targets, tm)
+    # sp_indices = smiles_ecfc_mat_parallel(mols[CMerModel.frag_col])
+    mols['SP_INDICES'] = smiles_ecfc_mat_parallel(mols[CMerModel.frag_col])
+    mols.dropna(axis=0, how='any', inplace=True)
+    if gen_map:
+        imap.reset()
+        gen_indices_map(mols['SP_INDICES'].values)
+    mols[CMerModel.sp_col] = cf_df_to_sp_vec_parallel(mols['SP_INDICES'])
+    mols.dropna(axis=0, how='any', inplace=True)
+    mols, targets, tm = sanitize_data(mols, targets, tm)
+    return (mols, targets, tm)
+
+
+def prepare_data(mols, targets, tm, fold=None):
+    targets = add_mol_sp_vec_col(targets, mols, tm)
+    t_mat = sparse.hstack(targets[CMerModel.sp_col].values)
+    log_data_structure(mols, targets, tm, imap, "C17", fold)
+    return (mols, targets, tm, t_mat)
+
+
+@ex.automain
+def run(kfcv, _run, _rnd, _config):
+    # type: (bool, sacred.run.Run, np.random.RandomState, dict) -> None
+    """
+    :param dict _config:
+    :param bool kfcv: Injected by sacred, should we run k-fold cross validation
+    :param sacred.run.Run _run: The run object inject by sacred
+    :param numpy.random.RandomState _rnd: The random state created by sacred
+    """
+    set_model_params()
+    c17mols, c17targets, c17tm = load_data(_config['dataset']['files'])
+    c17mols, c17targets, c17tm = curate_data_set(c17mols, c17targets, c17tm, gen_map=True)
+
+    if kfcv:
+        kf = KFold(n_splits=10, shuffle=True, random_state=_rnd)
+        mol_locs = np.arange(c17mols.shape[0])
+        for fold_no, (train_index, test_index) in enumerate(kf.split(mol_locs)):
+            train_mols, test_mols = c17mols.iloc[train_index, :], c17mols.iloc[test_index, :]
+            train_mols, train_targets, train_tm = sanitize_data(train_mols, c17targets, c17tm)
+            test_mols, test_targets, test_tm = sanitize_data(test_mols, c17targets, c17tm)
+            test_mols, test_targets, test_tm, t_mat = prepare_data(test_mols, test_targets, test_tm, fold_no)
+            # train_targets = add_mol_sp_vec_col(train_targets, train_mols, train_tm)
+            # t_mat = sparse.hstack(train_targets[CMerModel.sp_col].values)
+
+    else:
+        c17mols, c17targets, c17tm, c17t_mat = prepare_data(c17mols, c17targets, c17tm)
+        mol_map = pd.DataFrame(data=np.arange(c17mols.shape[0]), columns=['idx'], index=c17mols.index)
+        target_similarity_compounds(c17targets, mol_map)
+        target_similarity_cf(c17t_mat)
+        c17m_mat = sparse.hstack(c17mols[CMerModel.sp_col].values)
+        c17target_ids = pd.DataFrame(data=np.arange(len(c17targets.index.values)), columns=['idx'], index=c17targets.index.values)
+
+        c20mols, c20targets, c20tm = load_data(_config['dataset']['c20files'])
+        c20tm = c20tm.query("%s in @c17target_ids.index.values" %CMerModel.target_id)
+        unknown_mappings = np.setdiff1d(c20tm.index.values, c17tm.index.values)
+        c20tm = c20tm.loc[unknown_mappings, :]
+        c20mols, c20targets, c20tm = curate_data_set(c20mols, c20targets, c20tm)
+        log_data_structure(c20mols, c20targets, c20tm, imap, "C20", None)
+        c20m_mat = sparse.hstack(c20mols[CMerModel.sp_col].values)
+
+        c23mols, c23targets, c23tm = load_data(_config['dataset']['c20files'])
+        c23tm = c23tm.query("%s in @c17target_ids.index.values" %CMerModel.target_id)
+        unknown_mappings = np.setdiff1d(c23tm.index.values, c17tm.index.values)
+        c23tm = c23tm.loc[unknown_mappings, :]
+        c23mols, c23targets, c23tm = curate_data_set(c23mols, c23targets, c23tm)
+        log_data_structure(c23mols, c23targets, c23tm, imap, "C23", None)
+        c23m_mat = sparse.hstack(c23mols[CMerModel.sp_col].values)
+
+        for rscheme in recommended_weighting_schemes:
+            doc_tf, doc_idf = tfmethods[rscheme['doc']['tf']](c17t_mat), idfmethods[rscheme['doc']['idf']](c17t_mat)
+            q_idf = idfmethods[rscheme['query']['idf']](c17t_mat)
+            t_doc = doc_tf.multiply(doc_idf)
+
+            tfidt_sim(rscheme['query']['tf'], c17t_mat, q_idf, t_doc,
+                      "TFIDF Target similarity, doc:%s*%s, query:%s*%s" % (
+                          rscheme['doc']['tf'], rscheme['doc']['idf'],
+                          rscheme['query']['tf'], rscheme['query']['idf']))
+
+            csim, dsim = tfidt_sim(rscheme['query']['tf'], c17m_mat, q_idf, t_doc,
+                      "C17 TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (
+                          t_doc.shape[1], c17m_mat.shape[1], rscheme['doc']['tf'], rscheme['doc']['idf'],
+                          rscheme['query']['tf'],
+                          rscheme['query']['idf']))
+            csp = mol_target_sim_pos(csim, c17tm)
+            dsp = mol_target_sim_pos(dsim, c17tm)
+            log_np_data({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
+                        "C17 TFIDF doc:%s*%s, query:%s*%s similarity positions" % (
+                            rscheme['doc']['tf'], rscheme['doc']['idf'],
+                            rscheme['query']['tf'],
+                            rscheme['query']['idf']))
+
+            c20ut = c17target_ids.loc[c20targets.index.values].values.reshape(-1)
+
+            csim, dsim = tfidt_sim(rscheme['query']['tf'], c20m_mat, q_idf, t_doc[:,c20ut],
+                      "C20 TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (
+                          t_doc[:,c20ut].shape[1], c20m_mat.shape[1], rscheme['doc']['tf'], rscheme['doc']['idf'],
+                          rscheme['query']['tf'],
+                          rscheme['query']['idf']))
+            csp = mol_target_sim_pos(csim, c20tm)
+            dsp = mol_target_sim_pos(dsim, c20tm)
+            log_np_data({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
+                        "C20 TFIDF doc:%s*%s, query:%s*%s similarity positions" % (
+                            rscheme['doc']['tf'], rscheme['doc']['idf'],
+                            rscheme['query']['tf'],
+                            rscheme['query']['idf']))
+
+            c23ut = c17target_ids.loc[c23targets.index.values].values.reshape(-1)
+
+            csim, dsim = tfidt_sim(rscheme['query']['tf'], c23m_mat, q_idf, t_doc[:,c23ut],
+                      "C23 TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (
+                          t_doc[:,c23ut].shape[1], c23m_mat.shape[1], rscheme['doc']['tf'], rscheme['doc']['idf'],
+                          rscheme['query']['tf'],
+                          rscheme['query']['idf']))
+            csp = mol_target_sim_pos(csim, c23tm)
+            dsp = mol_target_sim_pos(dsim, c23tm)
+            log_np_data({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
+                        "C23 TFIDF doc:%s*%s, query:%s*%s similarity positions" % (
+                            rscheme['doc']['tf'], rscheme['doc']['idf'],
+                            rscheme['query']['tf'],
+                            rscheme['query']['idf']))
+    pass
