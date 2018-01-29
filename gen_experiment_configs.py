@@ -22,7 +22,7 @@ filters_action_list = [
     ]
 
 target_filter_action_list = [
-        'filter_mol_by_target_num'
+        'filter_mol_by_target_num',
         'filter_target_by_mol_num',
         'keep_single_mapping',
         'sanitize',
@@ -40,7 +40,7 @@ def yield_config():
     for cfg_comb in gen:
         cfg = {}
         if cfg_comb[0]:
-            cfg = {'filters.action_list': target_filter_action_list, 'filter_target_by_mol_num': {'cutoff': 9}}
+            cfg = {'filters.action_list': target_filter_action_list, 'filters.filter_target_by_mol_num': {'cutoff': 9}}
         for d in cfg_comb[1:]:
             cfg.update(d)
         yield cfg
