@@ -29,8 +29,8 @@ class PandasParallelRunner:
     
     def __init__(self):
         self.num_partitions = self.num_cores
-        # self.pool = ThreadPool(self.num_cores)
-        self.pool = ProcessPool(self.num_cores)
+        self.pool = ThreadPool(self.num_cores)
+        # self.pool = ProcessPool(self.num_cores)
         
     def p_arr_run(self, tup):
         data, func_holder = tup

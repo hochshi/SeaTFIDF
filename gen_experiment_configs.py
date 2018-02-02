@@ -31,16 +31,14 @@ target_num_cutoff = [{'filters.filter_mol_by_target_num': val} for val in [{key:
 filters_action_list = [
         'filter_mol_by_target_num'
         'keep_single_mapping',
-        'sanitize',
-        'smiles_largest_frag'
+        'sanitize'
     ]
 
 target_filter_action_list = [
         'filter_mol_by_target_num',
         'filter_target_by_mol_num',
         'keep_single_mapping',
-        'sanitize',
-        'smiles_largest_frag'
+        'sanitize'
     ]
 
 config_updates = {

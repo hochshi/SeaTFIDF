@@ -58,7 +58,7 @@ def cf_df_to_sp_vec(cf_count_df, use_counts, mers):
     if np.any(pd.isna(cf_count_df)):
         return np.nan
     if use_counts:
-        return cf_mat_to_sp_vec(cf_count_df['feature', 'counts'].values, mers)
+        return cf_mat_to_sp_vec(cf_count_df.loc[:, ['feature', 'counts']].values, mers)
     return cf_to_sp_vec(cf_count_df['feature'].values, mers)
 
 
