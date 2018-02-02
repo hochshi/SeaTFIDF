@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # How to run with settings override:
 #
 # from tfidf_experiment import ex
@@ -19,8 +20,7 @@
 from sacred import Experiment
 from dataset_ingredient import data_ingredient, load_data
 from filter_ingredient import filter_ingredient, filter_data, sanitize_data
-from cf_ingredient import cf_ingredient, smiles_ecfc_mat_parallel, \
-    gen_indices_map, imap, cf_df_to_sp_vec_parallel, create_target_sparse_vectors_parallel
+from cf_ingredient import cf_ingredient, gen_indices_map, imap, cf_df_to_sp_vec_parallel, create_target_sparse_vectors_parallel
 from log_ingredient import log_ingredient, log_data_structure, log_np_data
 from CMerModel import CMerModel
 from sacred.observers import MongoObserver
@@ -78,14 +78,10 @@ def add_mol_sp_vec_col(target_df, mols_df, tm_df):
 
 def curate_data_set(mols, targets, tm, gen_map=False):
     mols, targets, tm = filter_data(mols, targets, tm)
-    # sp_indices = smiles_ecfc_mat_parallel(mols[CMerModel.frag_col])
-    mols['SP_INDICES'] = smiles_ecfc_mat_parallel(mols[CMerModel.frag_col])
-    mols.dropna(axis=0, how='any', inplace=True)
     if gen_map:
         imap.reset()
-        gen_indices_map(mols['SP_INDICES'].values)
-    mols[CMerModel.sp_col] = cf_df_to_sp_vec_parallel(mols['SP_INDICES'])
-    mols.dropna(axis=0, how='any', inplace=True)
+        gen_indices_map(mols[CMerModel.cf_df].values)
+    mols[CMerModel.sp_col] = cf_df_to_sp_vec_parallel(mols[CMerModel.cf_df])
     mols, targets, tm = sanitize_data(mols, targets, tm)
     return (mols, targets, tm)
 

@@ -1,8 +1,9 @@
-from CMerModel import CMerModel
+from CMerModel import CMerModel, FunctionHolder, ppr_factory
 import numpy as np
 import pandas as pd
 from sacred import Ingredient
 
+prunner = ppr_factory()
 filter_ingredient = Ingredient('filters')
 
 
@@ -12,9 +13,13 @@ def cfg():
         'filter_mol_by_target_num'
         'keep_single_mapping',
         'sanitize',
-        # 'add_position',
-        'smiles_largest_frag'
+        'filter_radii'
     ]
+    radii = {
+        '0': True,
+        '1': True,
+        '2': True
+    }
     filter_mol_by_target_num = {
         'cutoff': 21
     }
@@ -61,18 +66,6 @@ def sanitize_data(mols_df, targets_df, tm_map):
     return (mols_df, targets_df, tm_map)
 
 
-@filter_ingredient.capture
-def get_largest_fragment(mols_df, targets_df, tm_map):
-    # type: (pd.DataFrame, pd.DataFrame, pd.DataFrame) -> (pd.DataFrame, pd.DataFrame, pd.DataFrame)
-    mols_df[CMerModel.frag_col] = mols_df['CANONICAL_SMILES'].apply(get_smiles_largest_fragment)
-    return (mols_df, targets_df, tm_map)
-
-
-def get_smiles_largest_fragment(smiles):
-    # type: (str) -> str
-    return sorted(smiles.split('.'), key=lambda x: len(x), reverse=True)[0]
-
-
 @filter_ingredient.capture(prefix='filter_mol_by_target_num')
 def filter_mol_by_target_num(mols_df, targets_df, tm_map, cutoff):
     # type: (pd.DataFrame, pd.DataFrame, pd.DataFrame, int) -> (pd.DataFrame, pd.DataFrame, pd.DataFrame)
@@ -110,11 +103,28 @@ def filter_mols_by_phase(mols_df, targets_df, tm_map, max_phase):
     return (mols_df, targets_df, tm_map)
 
 
+@filter_ingredient.capture
+def filter_radii(feature_df, radii):
+    # type: (pd.DataFrame, dict) -> pd.DataFrame
+    keep_radii = []
+    for radius, keep in radii.iteritems():
+        if keep:
+            keep_radii.append(radius)
+    return pd.DataFrame(feature_df.query('radius in @keep_radii'))
+
+
+@filter_ingredient.capture
+def filter_radii_parallel(feature_df_series, radii):
+    # type: (pd.Series, dict) -> pd.DataFrame
+    func_holder = FunctionHolder(filter_radii, (radii,))
+    return prunner.p_df(feature_df_series, func_holder)
+
+
 methods = {
     # 'add_position': add_position,
+    'filter_radii': filter_radii_parallel,
     'keep_single_mapping': keep_single_mapping,
     'sanitize': sanitize_data,
-    'smiles_largest_frag': get_largest_fragment,
     'filter_mol_by_target_num': filter_mol_by_target_num,  # requires a cutoff keyword argument
     'filter_target_by_mol_num': filter_target_by_mol_num,  # requires a cutoff keyword argument
     'filter_target_by_drug_num': filter_target_by_drug_num,  # requires a cutoff and max_phase keyword argument

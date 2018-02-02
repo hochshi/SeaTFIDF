@@ -21,7 +21,7 @@ class FunctionHolder:
         self.func = func
         self.args = args
 
-class PandasParallerRunner:
+class PandasParallelRunner:
     
     num_partitions = 10 #number of partitions to split dataframe
     num_cores = cpu_count() - 1 #number of cores on your machine
@@ -29,8 +29,8 @@ class PandasParallerRunner:
     
     def __init__(self):
         self.num_partitions = self.num_cores
-        self.pool = ThreadPool(self.num_cores)
-        # self.pool = ProcessPool(self.num_cores)
+        # self.pool = ThreadPool(self.num_cores)
+        self.pool = ProcessPool(self.num_cores)
         
     def p_arr_run(self, tup):
         data, func_holder = tup
@@ -52,6 +52,10 @@ class PandasParallerRunner:
         df = pd.concat(self.pool.map(self.p_df_run, product(df_split, [func_holder])))
         return df
 
+
+def ppr_factory(_singlton = PandasParallelRunner()):
+    # type: (PandasParallelRunner) -> PandasParallelRunner
+    return _singlton
 
 class arrayHasher:
     
@@ -120,10 +124,11 @@ class CMerModel:
     res_cor = 'CORRECT'
     res_tot = 'TOTAL'
     target_mols = 'TARGET_MOLS'
+    cf_df = 'FEATURE_DF'
     
     crcfunc = staticmethod(crcmod.predefined.mkPredefinedCrcFun('crc-64'))
     
-    prunner = PandasParallerRunner()
+    prunner = ppr_factory()
     
     imap = arrayHasher()
     

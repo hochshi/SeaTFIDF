@@ -26,7 +26,6 @@ def save_array_histogram(arr, artifact_name):
     """
     :param numpy.ndarray arr:
     :param str artifact_name:
-    :param sacred.run.Run _run:
     """
     density, density_edges = np.histogram(arr, density=True, bins='auto')
     count, count_edges = np.histogram(arr, density=False, bins='auto')
@@ -42,7 +41,6 @@ def log_data_structure(mols, targets, tm, imap, data_desc, fold, _run ):
     :param pandas.DataFrame mols:
     :param pandas.DataFrame targets:
     :param pandas.DataFrame tm:
-    :param str data_desc
     :param sacred.run.Run _run:
     :param CMerModel.arrayHasher imap:
 

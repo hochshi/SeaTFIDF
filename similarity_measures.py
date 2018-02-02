@@ -130,9 +130,8 @@ def target_similarity_compounds(t_df, mol_map, extra_details=''):
     # type: (pandas.DataFrame, pandas.DataFrame) -> object
     """
     :param pandas.DataFrame t_df:
-    :param pandas.DataFrame m_df:
-    :param pandas.DataFrame tm_df:
-    :param sacred.run.Run _run:
+    :param pandas.DataFrame mol_map:
+    :param str extra_details:
     """
     tc_mat = compound_target_mat(t_df, mol_map)
     log_self_similarity(tc_mat, '%s compound based target similarity' % extra_details)
@@ -175,8 +174,7 @@ def mol_target_sim_pos(sim_mat, check_tm):
     c_mat = tm_df_to_mat(check_tm)
     c_mat = c_mat.multiply(sim_mat).tocsr()
 
-    acc = []
-    acc.append(c_mat.getnnz(axis=1).reshape(-1))
+    acc = [c_mat.getnnz(axis=1).reshape(-1)]
     while 0 < c_mat.getnnz():
         max_vec = c_mat.max(axis=1).todense()
         max_vec[0 == max_vec] = np.NINF

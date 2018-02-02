@@ -1,69 +1,21 @@
-from CMerModel import CMerModel, PandasParallerRunner, FunctionHolder, arrayHasher
+from CMerModel import CMerModel, ppr_factory, FunctionHolder, arrayHasher
 import numpy as np
-from rdkit import Chem, DataStructs
-from rdkit.Chem import AllChem
 import pandas as pd
 from sacred import Ingredient
 from itertools import combinations
 from scipy import sparse
 
 cf_ingredient = Ingredient('cf')
-prunner = PandasParallerRunner()
+prunner = ppr_factory()
 imap = arrayHasher()
 
 
 @cf_ingredient.config
 def cfg():
-    radii = {
-        '0': True,
-        '1': True,
-        '2': True
-    }
     use_counts = False
     mers = 1
 
 
-def gen_mol(smiles):
-    # type: (str) -> Chem.Mol
-    if smiles is None:
-        return None
-    return Chem.MolFromSmiles(smiles)
-
-
-def smiles_ecfc_mat(smiles, radii):
-    # type: (str, list) -> pd.DataFrame
-    mol = gen_mol(smiles)
-    if mol is None:
-        return np.nan
-
-    rad_keys = sorted(radii.keys(), reverse=False)
-    key = rad_keys.pop()
-    while (not radii[key]) and (0 != len(rad_keys)):
-        key = rad_keys.pop()
-    state = True
-    rd = AllChem.GetMorganFingerprint(mol, radius=int(key))
-    in_indices = rd.GetNonzeroElements().keys()
-    in_indices
-    indices_w_count = pd.DataFrame.from_dict(rd.GetNonzeroElements(), orient='index') \
-        .reset_index(level=0, inplace=False)
-    indices_w_count.columns = ['feature', 'counts']
-    for key in rad_keys:
-        if state != radii[key]:
-            state = radii[key]
-            if state:
-                in_indices = np.concatenate([in_indices, AllChem.GetMorganFingerprint(mol, radius=int(key)).GetNonzeroElements().keys()])
-            else:
-                in_indices = np.setdiff1d(in_indices,
-                                          AllChem.GetMorganFingerprint(mol, radius=int(key)).GetNonzeroElements().keys())
-    retval = pd.DataFrame(indices_w_count.query('feature in @in_indices'))
-    return retval
-
-
-@cf_ingredient.capture
-def smiles_ecfc_mat_parallel(smiles_series, radii):
-    # type: (pd.Series, list) -> pd.DataFrame
-    func_holder = FunctionHolder(smiles_ecfc_mat, (radii,))
-    return prunner.p_df(smiles_series, func_holder)
 
 
 @cf_ingredient.capture
@@ -106,7 +58,7 @@ def cf_df_to_sp_vec(cf_count_df, use_counts, mers):
     if np.any(pd.isna(cf_count_df)):
         return np.nan
     if use_counts:
-        return cf_mat_to_sp_vec(cf_count_df.values, mers)
+        return cf_mat_to_sp_vec(cf_count_df['feature', 'counts'].values, mers)
     return cf_to_sp_vec(cf_count_df['feature'].values, mers)
 
 
