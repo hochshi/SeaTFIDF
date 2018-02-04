@@ -93,6 +93,18 @@ def prepare_data(mols, targets, tm, fold=None):
     return (mols, targets, tm, t_mat)
 
 
+def log_similarity(q_tf, q_mat, q_idf, doc_term, artifact_name, map_df=None, log_sim_pos=False):
+    # type: (str, sparse.csc_matrix, sparse.csc_matrix, sparse.csc_matrix, str, pd.DataFrame, bool) -> None
+    sim_gen = tfidt_sim(q_tf, q_mat, q_idf, doc_term)
+    for sim_name, sim_mat in sim_gen:
+        key_name = '%s_similarity_matrix' % sim_name
+        log_np_data({key_name: sim_mat}, sim_name + ' '+ artifact_name)
+        if log_sim_pos:
+            sp = mol_target_sim_pos(sim_mat, map_df)
+            key_name = '%s_sim_pos' % sim_name
+            log_np_data({key_name: sp}, sim_name + ' ' + artifact_name)
+
+
 @ex.automain
 def run(kfcv, _run, _rnd, _config):
     # type: (bool, sacred.run.Run, np.random.RandomState, dict) -> None
@@ -102,6 +114,7 @@ def run(kfcv, _run, _rnd, _config):
     :param sacred.run.Run _run: The run object inject by sacred
     :param numpy.random.RandomState _rnd: The random state created by sacred
     """
+    sim_mats_keys = ['cosine_similarity', 'dice_similarity']
     set_model_params()
     c17mols, c17targets, c17tm = load_data(_config['dataset']['files'])
     c17mols, c17targets, c17tm = curate_data_set(c17mols, c17targets, c17tm, gen_map=True)
@@ -199,53 +212,29 @@ def run(kfcv, _run, _rnd, _config):
             q_idf = idfmethods[rscheme['query']['idf']](c17t_mat)
             t_doc = doc_tf.multiply(doc_idf)
 
-            tfidt_sim(rscheme['query']['tf'], c17t_mat, q_idf, t_doc,
-                      "TFIDF Target similarity, doc:%s*%s, query:%s*%s" % (
-                          rscheme['doc']['tf'], rscheme['doc']['idf'],
-                          rscheme['query']['tf'], rscheme['query']['idf']))
+            log_similarity(rscheme['query']['tf'], c17t_mat, q_idf, t_doc, "TFIDF Target similarity, doc:%s*%s, query:%s*%s" % (
+                rscheme['doc']['tf'], rscheme['doc']['idf'],
+                rscheme['query']['tf'], rscheme['query']['idf']))
 
-            c17m_split = np.array_split(np.arange(c17m_mat.shape[1]), 10)
-            for idx, split in enumerate(c17m_split):
-                csim, dsim = tfidt_sim(rscheme['query']['tf'], c17m_mat[:,split], q_idf, t_doc,
-                          "C17 (part %d) TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (idx,
-                              t_doc.shape[1], c17m_mat[:,split].shape[1], rscheme['doc']['tf'], rscheme['doc']['idf'],
-                              rscheme['query']['tf'],
-                              rscheme['query']['idf']))
-                csp = mol_target_sim_pos(csim, c17tm)
-                dsp = mol_target_sim_pos(dsim, c17tm)
-                log_np_data({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
-                            "C17 (part %d) TFIDF doc:%s*%s, query:%s*%s similarity positions" % (idx,
-                                rscheme['doc']['tf'], rscheme['doc']['idf'],
-                                rscheme['query']['tf'],
-                                rscheme['query']['idf']))
+            log_similarity(rscheme['query']['tf'], c17m_mat, q_idf, t_doc,
+                      "C17 TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (
+                          t_doc.shape[1], c17m_mat.shape[1], rscheme['doc']['tf'], rscheme['doc']['idf'],
+                          rscheme['query']['tf'],
+                          rscheme['query']['idf']), c17tm, True)
 
             c20ut = c17target_ids.loc[c20targets.index.values].values.reshape(-1)
 
-            csim, dsim = tfidt_sim(rscheme['query']['tf'], c20m_mat, q_idf, t_doc[:,c20ut],
+            log_similarity(rscheme['query']['tf'], c20m_mat, q_idf, t_doc[:,c20ut],
                       "C20 TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (
                           t_doc[:,c20ut].shape[1], c20m_mat.shape[1], rscheme['doc']['tf'], rscheme['doc']['idf'],
                           rscheme['query']['tf'],
-                          rscheme['query']['idf']))
-            csp = mol_target_sim_pos(csim, c20tm)
-            dsp = mol_target_sim_pos(dsim, c20tm)
-            log_np_data({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
-                        "C20 TFIDF doc:%s*%s, query:%s*%s similarity positions" % (
-                            rscheme['doc']['tf'], rscheme['doc']['idf'],
-                            rscheme['query']['tf'],
-                            rscheme['query']['idf']))
+                          rscheme['query']['idf']), c20tm, True)
 
             c23ut = c17target_ids.loc[c23targets.index.values].values.reshape(-1)
 
-            csim, dsim = tfidt_sim(rscheme['query']['tf'], c23m_mat, q_idf, t_doc[:,c23ut],
+            log_similarity(rscheme['query']['tf'], c23m_mat, q_idf, t_doc[:,c23ut],
                       "C23 TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (
                           t_doc[:,c23ut].shape[1], c23m_mat.shape[1], rscheme['doc']['tf'], rscheme['doc']['idf'],
                           rscheme['query']['tf'],
-                          rscheme['query']['idf']))
-            csp = mol_target_sim_pos(csim, c23tm)
-            dsp = mol_target_sim_pos(dsim, c23tm)
-            log_np_data({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
-                        "C23 TFIDF doc:%s*%s, query:%s*%s similarity positions" % (
-                            rscheme['doc']['tf'], rscheme['doc']['idf'],
-                            rscheme['query']['tf'],
-                            rscheme['query']['idf']))
+                          rscheme['query']['idf']), c23tm, True)
     pass

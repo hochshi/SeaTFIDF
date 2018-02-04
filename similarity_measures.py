@@ -4,6 +4,7 @@ from cf_ingredient import compound_target_mat
 from log_ingredient import log_np_data
 import pandas as pd
 from weights import tfmethods
+from typing import Iterable
 
 
 def cosine(mata, matb):
@@ -90,15 +91,14 @@ def self_similarity(mat):
 
 
 def similarity(mata, matb):
-    # type: (sparse.csc_matrix, sparse.csc_matrix) -> (np.ndarray, np.ndarray)
+    # type: (sparse.csc_matrix, sparse.csc_matrix) -> Iterable[(str, np.ndarray)]
     """
     :param scipy.sparse.csc_matrix mata:
     :param scipy.sparse.csc_matrix matb:
     :return (numpy.ndarray, numpy.ndarray) (csim, dim):
     """
-    csim = cosine(mata, matb)
-    dsim = dice(mata, matb)
-    return (csim, dsim)
+    yield ('cosine', cosine(mata, matb))
+    yield ('dice', dice(mata, matb))
 
 
 def log_self_similarity(mat, artifact_name):
@@ -113,17 +113,16 @@ def log_self_similarity(mat, artifact_name):
     log_np_data({'cosine_similarity': csim, 'dice_similarity': dsim}, artifact_name)
 
 
-def log_similarity(mata, matb, artifact_name):
-    # type: (sparse.csc_matrix, sparse.csc_matrix, str) -> (np.ndarray, np.ndarray)
+def log_similarity(sim_mat, key_name, artifact_name):
+    # type: (numpy.ndarray, str, str) -> None
     """
     :rtype: (numpy.ndarray, numpy.ndarray)
     :param str artifact_name:
     :param scipy.sparse.csc_matrix mata:
     :param scipy.sparse.csc_matrix matb:
     """
-    csim, dsim = similarity(mata, matb)
-    log_np_data({'cosine_similarity': csim, 'dice_similarity': dsim}, artifact_name)
-    return (csim, dsim)
+    log_np_data({key_name: sim_mat}, artifact_name)
+    pass
 
 
 def target_similarity_compounds(t_df, mol_map, extra_details=''):
@@ -187,8 +186,8 @@ def mol_target_sim_pos(sim_mat, check_tm):
     return np.array(acc).transpose()
 
 
-def tfidt_sim(tfmethod_name, q_mat, idf_vec, doc_mat, desc):
-    # type: (str, sparse.csc_matrix, sparse.csc_matrix, sparse.csc_matrix, str) -> (np.ndarray, np.ndarray)
+def tfidt_sim(tfmethod_name, q_mat, idf_vec, doc_mat):
+    # type: (str, sparse.csc_matrix, sparse.csc_matrix, sparse.csc_matrix) -> Iterable[(str, np.ndarray)]
     """
     :rtype (numpy.ndarray, numpy.ndarray)
     :param str desc:
@@ -199,4 +198,4 @@ def tfidt_sim(tfmethod_name, q_mat, idf_vec, doc_mat, desc):
     """
     q_mat = tfmethods[tfmethod_name](q_mat)
     q_mat = q_mat.multiply(idf_vec)
-    return log_similarity(q_mat, doc_mat, desc)
+    return similarity(q_mat, doc_mat)
