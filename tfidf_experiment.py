@@ -204,18 +204,20 @@ def run(kfcv, _run, _rnd, _config):
                           rscheme['doc']['tf'], rscheme['doc']['idf'],
                           rscheme['query']['tf'], rscheme['query']['idf']))
 
-            csim, dsim = tfidt_sim(rscheme['query']['tf'], c17m_mat, q_idf, t_doc,
-                      "C17 TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (
-                          t_doc.shape[1], c17m_mat.shape[1], rscheme['doc']['tf'], rscheme['doc']['idf'],
-                          rscheme['query']['tf'],
-                          rscheme['query']['idf']))
-            csp = mol_target_sim_pos(csim, c17tm)
-            dsp = mol_target_sim_pos(dsim, c17tm)
-            log_np_data({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
-                        "C17 TFIDF doc:%s*%s, query:%s*%s similarity positions" % (
-                            rscheme['doc']['tf'], rscheme['doc']['idf'],
-                            rscheme['query']['tf'],
-                            rscheme['query']['idf']))
+            c17m_split = np.array_split(np.arange(c17m_mat.shape[1]), 10)
+            for idx, split in enumerate(c17m_split):
+                csim, dsim = tfidt_sim(rscheme['query']['tf'], c17m_mat[:,split], q_idf, t_doc,
+                          "C17 (part %d) TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (idx,
+                              t_doc.shape[1], c17m_mat[:,split].shape[1], rscheme['doc']['tf'], rscheme['doc']['idf'],
+                              rscheme['query']['tf'],
+                              rscheme['query']['idf']))
+                csp = mol_target_sim_pos(csim, c17tm)
+                dsp = mol_target_sim_pos(dsim, c17tm)
+                log_np_data({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
+                            "C17 (part %d) TFIDF doc:%s*%s, query:%s*%s similarity positions" % (idx,
+                                rscheme['doc']['tf'], rscheme['doc']['idf'],
+                                rscheme['query']['tf'],
+                                rscheme['query']['idf']))
 
             c20ut = c17target_ids.loc[c20targets.index.values].values.reshape(-1)
 

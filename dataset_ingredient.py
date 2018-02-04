@@ -33,9 +33,9 @@ def cfg():
 @data_ingredient.capture
 def load_data(files, select_largest_frag):
     try:
-        mol_data = pd.read_pickle(files['mols'].split('.')[0] + '.pd', compression='xz')
-        target_data = pd.read_pickle(files['targets'].split('.')[0] + '.pd', compression='xz')
-        tm_map = pd.read_pickle(files['map'].split('.')[0] + '.pd', compression='xz')
+        mol_data = pd.read_pickle(files['mols'].split('.')[0] + '.pd')
+        target_data = pd.read_pickle(files['targets'].split('.')[0] + '.pd')
+        tm_map = pd.read_pickle(files['map'].split('.')[0] + '.pd')
     except IOError:
         mol_data = pd.read_csv(files['mols'])
         target_data = pd.read_csv(files['targets'])
