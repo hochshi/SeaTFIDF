@@ -58,8 +58,8 @@ def dice(mata, matb):
     nom = 2 * (mata.transpose() * matb).todense()  # shape: MxN
     a_sums = np.array(mata.power(2).sum(axis=0), dtype=np.float64)  # m sums
     b_sums = np.array(matb.power(2).sum(axis=0), dtype=np.float64)  # n sums
-    denom = np.repeat(a_sums, b_samples).reshape(a_samples, b_samples) + \
-            np.tile(b_sums, a_samples).reshape(a_samples, b_samples)
+    denom = np.add(np.repeat(a_sums, b_samples).reshape(a_samples, b_samples),
+            np.tile(b_sums, a_samples).reshape(a_samples, b_samples))
     denom = np.power(denom, -1)
     return np.multiply(nom, denom)
 
