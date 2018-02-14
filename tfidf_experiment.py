@@ -21,7 +21,7 @@ from sacred import Experiment
 from dataset_ingredient import data_ingredient, load_data
 from filter_ingredient import filter_ingredient, filter_data, sanitize_data
 from cf_ingredient import cf_ingredient, gen_indices_map, imap, cf_df_to_sp_vec_parallel, create_target_sparse_vectors_parallel
-from log_ingredient import log_ingredient, log_data_structure, log_np_data
+from log_ingredient import log_ingredient, log_data_structure, log_np_dict
 from CMerModel import CMerModel
 from sacred.observers import MongoObserver
 import numpy as np
@@ -112,11 +112,10 @@ def log_similarity(q_tf, q_mat, q_idf, doc_term, artifact_name, map_df=None, log
     sim_gen = tfidt_sim(q_tf, q_mat, q_idf, doc_term)
     for sim_name, sim_mat in sim_gen:
         key_name = '%s_similarity_matrix' % sim_name
-        log_np_data({key_name: sim_mat}, sim_name + ' '+ artifact_name)
+        log_np_dict({key_name: sim_mat}, sim_name + ' '+ artifact_name)
         if log_sim_pos:
-            sp = mol_target_sim_pos(sim_mat, map_df)
             key_name = '%s_sim_pos' % sim_name
-            log_np_data({key_name: sp}, sim_name + ' ' + artifact_name)
+            log_np_dict({key_name: mol_target_sim_pos(sim_mat, map_df)}, sim_name + ' similarity positions ' + artifact_name)
 
 
 def prep_rscheme_data(rscheme, t_mat):
@@ -200,7 +199,7 @@ def run(kfcv, _run, _rnd, _config):
                                            rscheme['query']['idf']))
                 csp = mol_target_sim_pos(csim, train_tm)
                 dsp = mol_target_sim_pos(dsim, train_tm)
-                log_np_data({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
+                log_np_dict({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
                             "C17 Train Fold %d TFIDF doc:%s*%s, query:%s*%s similarity positions" % (fold_no,
                                 rscheme['doc']['tf'], rscheme['doc']['idf'],
                                 rscheme['query']['tf'],
@@ -216,7 +215,7 @@ def run(kfcv, _run, _rnd, _config):
                                            rscheme['query']['idf']))
                 csp = mol_target_sim_pos(csim, test_tm)
                 dsp = mol_target_sim_pos(dsim, test_tm)
-                log_np_data({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
+                log_np_dict({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
                             "C17 Test Fold %d TFIDF doc:%s*%s, query:%s*%s similarity positions" % (fold_no,
                                 rscheme['doc']['tf'], rscheme['doc']['idf'],
                                 rscheme['query']['tf'],

@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import sparse
 from cf_ingredient import compound_target_mat
-from log_ingredient import log_np_data
+from log_ingredient import log_np_dict
 import pandas as pd
 from weights import tfmethods
 from typing import Iterable
@@ -18,8 +18,8 @@ def cosine(mata, matb):
     a_samples = mata.shape[1]
     b_samples = matb.shape[1]
     nom = (mata.transpose() * matb).todense()  # shape: MxN
-    a_sums = np.array(mata.power(2).sum(axis=0), dtype=np.float64)  # m sums
-    b_sums = np.array(matb.power(2).sum(axis=0), dtype=np.float64)  # n sums
+    a_sums = np.array(mata.power(2).sum(axis=0), dtype=np.float32)  # m sums
+    b_sums = np.array(matb.power(2).sum(axis=0), dtype=np.float32)  # n sums
     denom = np.multiply(np.repeat(a_sums, b_samples).reshape(a_samples, b_samples),
             np.tile(b_sums, a_samples).reshape(a_samples, b_samples))
     nom_zeros = (0 == nom)
@@ -39,7 +39,7 @@ def self_cosine(mata):
     # return pairwise_distances(mata, metric='cosine', n_jobs=1)
     samples = mata.shape[1]
     nom = (mata.transpose() * mata).todense()
-    samples_sum = np.array(mata.power(2).sum(axis=0), dtype=np.float64)
+    samples_sum = np.array(mata.power(2).sum(axis=0), dtype=np.float32)
     denom = np.multiply(np.tile(samples_sum, samples).reshape(samples, samples),
             np.repeat(samples_sum, samples).reshape(samples, samples))
     denom = np.power(denom, -0.5)
@@ -56,10 +56,10 @@ def dice(mata, matb):
     a_samples = mata.shape[1]
     b_samples = matb.shape[1]
     nom = 2 * (mata.transpose() * matb).todense()  # shape: MxN
-    a_sums = np.array(mata.power(2).sum(axis=0), dtype=np.float64)  # m sums
-    b_sums = np.array(matb.power(2).sum(axis=0), dtype=np.float64)  # n sums
-    denom = np.repeat(a_sums, b_samples).reshape(a_samples, b_samples) + \
-            np.tile(b_sums, a_samples).reshape(a_samples, b_samples)
+    a_sums = np.array(mata.power(2).sum(axis=0), dtype=np.float32)  # m sums
+    b_sums = np.array(matb.power(2).sum(axis=0), dtype=np.float32)  # n sums
+    denom = np.add(np.repeat(a_sums, b_samples).reshape(a_samples, b_samples),
+            np.tile(b_sums, a_samples).reshape(a_samples, b_samples))
     denom = np.power(denom, -1)
     return np.multiply(nom, denom)
 
@@ -72,7 +72,7 @@ def self_dice(mata):
     """
     samples = mata.shape[1]
     nom = 2 * (mata.transpose() * mata).todense()
-    samples_sum = np.array(mata.power(2).sum(axis=0), dtype=np.float64)
+    samples_sum = np.array(mata.power(2).sum(axis=0), dtype=np.float32)
     denom = np.tile(samples_sum, samples).reshape(samples, samples) + \
             np.repeat(samples_sum, samples).reshape(samples, samples)
     denom = np.power(denom, -1)
@@ -110,7 +110,7 @@ def log_self_similarity(mat, artifact_name):
     "calc self similarity"
     csim, dsim = self_similarity(mat)
     "calc self similarity done"
-    log_np_data({'cosine_similarity': csim, 'dice_similarity': dsim}, artifact_name)
+    log_np_dict({'cosine_similarity': csim, 'dice_similarity': dsim}, artifact_name)
 
 
 def log_similarity(sim_mat, key_name, artifact_name):
@@ -121,7 +121,7 @@ def log_similarity(sim_mat, key_name, artifact_name):
     :param scipy.sparse.csc_matrix mata:
     :param scipy.sparse.csc_matrix matb:
     """
-    log_np_data({key_name: sim_mat}, artifact_name)
+    log_np_dict({key_name: sim_mat}, artifact_name)
     pass
 
 

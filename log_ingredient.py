@@ -2,24 +2,35 @@ from sacred import Ingredient
 from tempfile import NamedTemporaryFile
 import numpy as np
 from CMerModel import CMerModel
-from numpy import savez_compressed as savez
+from numpy import save as savez
+from backports import lzma
 
 log_ingredient = Ingredient('log')
 
 
 @log_ingredient.capture
-def log_np_data(kwdict, artifact_name, _run):
-    # type: (dict, str, sacred.run.Run) -> object
+def log_np_data(arr, artifact_name, _run):
+    # type: (np.ndarray, str, sacred.run.Run) -> None
     """
     :param dict kwdict:
     :param str artifact_name:
     :param sacred.run.Run _run:
     """
-    outfile = NamedTemporaryFile()
-    savez(outfile, **kwdict)
-    _run.add_artifact(outfile.name, artifact_name)
+    my_filters = [
+        {"id": lzma.FILTER_LZMA2, "preset": 7 | lzma.PRESET_EXTREME}
+    ]
+    with NamedTemporaryFile() as outfile:
+        with lzma.open(outfile, "wb", filters=my_filters) as lzf:
+            savez(lzf, arr)
+        _run.add_artifact(outfile.name, artifact_name)
     outfile.close()
+    
 
+@log_ingredient.capture
+def log_np_dict(data, artifact_name):
+    # type: (dict, str) -> None
+    for key, val in data.iteritems():
+        log_np_data(val, str(key) + ' - ' + artifact_name)
 
 @log_ingredient.capture
 def save_array_histogram(arr, artifact_name):
@@ -29,7 +40,7 @@ def save_array_histogram(arr, artifact_name):
     """
     density, density_edges = np.histogram(arr, density=True, bins='auto')
     count, count_edges = np.histogram(arr, density=False, bins='auto')
-    log_np_data({'density': density, 'density_edges': density_edges, 'count': count,
+    log_np_dict({'density': density, 'density_edges': density_edges, 'count': count,
              'count_edges': count_edges}, artifact_name)
 
 

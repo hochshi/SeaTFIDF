@@ -24,7 +24,15 @@ for i in vals:
         for k in vals:
             acc.append((i, j, k))
 
-radii_dict = [ {key: val} for key, val in list(product(['filters.radii'], [{'0': val1, '1':val2, '2': val3} for val1, val2, val3 in acc]))]
+# radii_dict = [ {key: val} for key, val in list(product(['filters.radii'], [{'0': val1, '1':val2, '2': val3} for val1, val2, val3 in acc]))]
+# same hacking comment as below
+vals = [
+    {'0': True, '1': True, '2': True},
+    {'0': True, '1': True, '2': False},
+    {'0': False, '1': True, '2': False},
+    {'0': False, '1': False, '2': True}
+]
+radii_dict = [ {key: val} for key, val in list(product(['filters.radii'], vals))]
 
 target_num_cutoff = [{'filters.filter_mol_by_target_num': val} for val in [{key: val} for key, val in list(product(['cutoff'], [2, 3, 6, 11, 21]))]]
 
@@ -48,7 +56,10 @@ config_updates = {
 
 
 def yield_config():
-    gen = product([True, False], target_num_cutoff, radii_dict, counts_dict, mers_dict)
+    # gen = product([True, False], target_num_cutoff, radii_dict, counts_dict, mers_dict)
+    # Hacking a bit here - we want to reduce the number of configs by a half so we'll
+    # consider only configs for which are filtering for targets with at least 10 compounds
+    gen = product([True], target_num_cutoff, radii_dict, counts_dict, mers_dict)
     for cfg_comb in gen:
         cfg = {}
         if cfg_comb[0]:
