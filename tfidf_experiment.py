@@ -30,6 +30,20 @@ import pandas as pd
 from sklearn.model_selection import KFold
 from similarity_measures import target_similarity_compounds, target_similarity_cf, tfidt_sim, mol_target_sim_pos
 from weights import recommended_weighting_schemes, tfmethods, idfmethods
+import sys
+from typing import Iterable
+
+
+class DataSourceHolder:
+
+    name = ''
+    mol_mat = None
+    tm = None
+    ut_selector = None
+
+    def __init__(self, name, mol_mat, tm, ut_selector):
+        # type: (str, sparse.csc_matrix, pd.DataFrame, Iterable[slice]) -> None
+        self.name, self.mol_mat, self.tm, self.ut_selector = name, mol_mat, tm, ut_selector
 
 
 ex = Experiment('tfidf_experiment', ingredients=[data_ingredient, filter_ingredient, cf_ingredient, log_ingredient], interactive=True)
@@ -104,6 +118,30 @@ def log_similarity(q_tf, q_mat, q_idf, doc_term, artifact_name, map_df=None, log
             key_name = '%s_sim_pos' % sim_name
             log_np_data({key_name: sp}, sim_name + ' ' + artifact_name)
 
+
+def prep_rscheme_data(rscheme, t_mat):
+    # type: (dict, sparse.csc_matrix) -> object
+    doc_tf, doc_idf = tfmethods[rscheme['doc']['tf']](t_mat), idfmethods[rscheme['doc']['idf']](t_mat)
+    q_idf = idfmethods[rscheme['query']['idf']](t_mat)
+    t_doc = doc_tf.multiply(doc_idf)
+    return (t_doc, q_idf)
+
+
+def rscheme_similarity(rscheme, t_mat, data_sources):
+    # type: (dict, sparse.csc_matrix, Iterable[DataSourceHolder]) -> None
+
+    t_doc, q_idf = prep_rscheme_data(rscheme, t_mat)
+
+    log_similarity(rscheme['query']['tf'], t_mat, q_idf, t_doc, "TFIDF Target similarity, doc:%s*%s, query:%s*%s" % (
+        rscheme['doc']['tf'], rscheme['doc']['idf'],
+        rscheme['query']['tf'], rscheme['query']['idf']))
+
+    for ds in data_sources:
+        log_similarity(rscheme['query']['tf'], ds.mol_mat, q_idf, t_doc[ds.ut_selector],
+                       "%s TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (ds.name,
+                           t_doc.shape[1], ds.mol_mat.shape[1], rscheme['doc']['tf'], rscheme['doc']['idf'],
+                           rscheme['query']['tf'],
+                           rscheme['query']['idf']), ds.tm, True)
 
 @ex.automain
 def run(kfcv, _run, _rnd, _config):
@@ -184,12 +222,17 @@ def run(kfcv, _run, _rnd, _config):
                                 rscheme['query']['tf'],
                                 rscheme['query']['idf']))
     else:
+
+        data_sources = []
+
         c17mols, c17targets, c17tm, c17t_mat = prepare_data(c17mols, c17targets, c17tm)
         mol_map = pd.DataFrame(data=np.arange(c17mols.shape[0]), columns=['idx'], index=c17mols.index)
         target_similarity_compounds(c17targets, mol_map)
         target_similarity_cf(c17t_mat)
         c17m_mat = sparse.hstack(c17mols[CMerModel.sp_col].values)
         c17target_ids = pd.DataFrame(data=np.arange(len(c17targets.index.values)), columns=['idx'], index=c17targets.index.values)
+
+        data_sources.append(DataSourceHolder('C17', c17m_mat, c17tm, (slice(None), slice(None))))
 
         c20mols, c20targets, c20tm = load_data(_config['dataset']['c20files'])
         c20tm = c20tm.query("%s in @c17target_ids.index.values" %CMerModel.target_id)
@@ -199,6 +242,9 @@ def run(kfcv, _run, _rnd, _config):
         log_data_structure(c20mols, c20targets, c20tm, imap, "C20", None)
         c20m_mat = sparse.hstack(c20mols[CMerModel.sp_col].values)
 
+        c20ut = c17target_ids.loc[c20targets.index.values].values.reshape(-1)
+        data_sources.append(DataSourceHolder('C20', c20m_mat, c20tm, (slice(None), c20ut)))
+
         c23mols, c23targets, c23tm = load_data(_config['dataset']['c20files'])
         c23tm = c23tm.query("%s in @c17target_ids.index.values" %CMerModel.target_id)
         unknown_mappings = np.setdiff1d(c23tm.index.values, c17tm.index.values)
@@ -207,34 +253,9 @@ def run(kfcv, _run, _rnd, _config):
         log_data_structure(c23mols, c23targets, c23tm, imap, "C23", None)
         c23m_mat = sparse.hstack(c23mols[CMerModel.sp_col].values)
 
+        c23ut = c17target_ids.loc[c23targets.index.values].values.reshape(-1)
+        data_sources.append(DataSourceHolder('C23', c23m_mat, c23tm, (slice(None), c23ut)))
+
         for rscheme in recommended_weighting_schemes:
-            doc_tf, doc_idf = tfmethods[rscheme['doc']['tf']](c17t_mat), idfmethods[rscheme['doc']['idf']](c17t_mat)
-            q_idf = idfmethods[rscheme['query']['idf']](c17t_mat)
-            t_doc = doc_tf.multiply(doc_idf)
-
-            log_similarity(rscheme['query']['tf'], c17t_mat, q_idf, t_doc, "TFIDF Target similarity, doc:%s*%s, query:%s*%s" % (
-                rscheme['doc']['tf'], rscheme['doc']['idf'],
-                rscheme['query']['tf'], rscheme['query']['idf']))
-
-            log_similarity(rscheme['query']['tf'], c17m_mat, q_idf, t_doc,
-                      "C17 TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (
-                          t_doc.shape[1], c17m_mat.shape[1], rscheme['doc']['tf'], rscheme['doc']['idf'],
-                          rscheme['query']['tf'],
-                          rscheme['query']['idf']), c17tm, True)
-
-            c20ut = c17target_ids.loc[c20targets.index.values].values.reshape(-1)
-
-            log_similarity(rscheme['query']['tf'], c20m_mat, q_idf, t_doc[:,c20ut],
-                      "C20 TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (
-                          t_doc[:,c20ut].shape[1], c20m_mat.shape[1], rscheme['doc']['tf'], rscheme['doc']['idf'],
-                          rscheme['query']['tf'],
-                          rscheme['query']['idf']), c20tm, True)
-
-            c23ut = c17target_ids.loc[c23targets.index.values].values.reshape(-1)
-
-            log_similarity(rscheme['query']['tf'], c23m_mat, q_idf, t_doc[:,c23ut],
-                      "C23 TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (
-                          t_doc[:,c23ut].shape[1], c23m_mat.shape[1], rscheme['doc']['tf'], rscheme['doc']['idf'],
-                          rscheme['query']['tf'],
-                          rscheme['query']['idf']), c23tm, True)
-    pass
+            rscheme_similarity(rscheme, c17t_mat, data_sources)
+    sys.exit(0)
