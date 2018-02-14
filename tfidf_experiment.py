@@ -263,5 +263,5 @@ def run(kfcv, _run, _rnd, _config):
 
         # CMerModel.prunner.pool.map(rscheme_similarity, recommended_weighting_schemes)
         for rscheme in recommended_weighting_schemes:
-            rscheme_similarity(rscheme, c17t_mat, data_sources)
+            rscheme_similarity(rscheme)
     sys.exit(0)
