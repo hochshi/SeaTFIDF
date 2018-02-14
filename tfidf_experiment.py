@@ -126,21 +126,24 @@ def prep_rscheme_data(rscheme, t_mat):
     return (t_doc, q_idf)
 
 
-def rscheme_similarity(rscheme, t_mat, data_sources):
-    # type: (dict, sparse.csc_matrix, Iterable[DataSourceHolder]) -> None
+def rscheme_similarity_func(t_mat, data_sources):
+    # type: (sparse.csc_matrix, Iterable[DataSourceHolder]) -> function
+    def rscheme_similarity(rscheme):
+        # type: (dict) -> None
+        t_doc, q_idf = prep_rscheme_data(rscheme, t_mat)
 
-    t_doc, q_idf = prep_rscheme_data(rscheme, t_mat)
+        log_similarity(rscheme['query']['tf'], t_mat, q_idf, t_doc, "TFIDF Target similarity, doc:%s*%s, query:%s*%s" % (
+            rscheme['doc']['tf'], rscheme['doc']['idf'],
+            rscheme['query']['tf'], rscheme['query']['idf']))
 
-    log_similarity(rscheme['query']['tf'], t_mat, q_idf, t_doc, "TFIDF Target similarity, doc:%s*%s, query:%s*%s" % (
-        rscheme['doc']['tf'], rscheme['doc']['idf'],
-        rscheme['query']['tf'], rscheme['query']['idf']))
+        for ds in data_sources:
+            log_similarity(rscheme['query']['tf'], ds.mol_mat, q_idf, t_doc[ds.ut_selector],
+                           "%s TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (ds.name,
+                               t_doc.shape[1], ds.mol_mat.shape[1], rscheme['doc']['tf'], rscheme['doc']['idf'],
+                               rscheme['query']['tf'],
+                               rscheme['query']['idf']), ds.tm, True)
 
-    for ds in data_sources:
-        log_similarity(rscheme['query']['tf'], ds.mol_mat, q_idf, t_doc[ds.ut_selector],
-                       "%s TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (ds.name,
-                           t_doc.shape[1], ds.mol_mat.shape[1], rscheme['doc']['tf'], rscheme['doc']['idf'],
-                           rscheme['query']['tf'],
-                           rscheme['query']['idf']), ds.tm, True)
+    return rscheme_similarity
 
 @ex.automain
 def run(kfcv, _run, _rnd, _config):
@@ -157,69 +160,70 @@ def run(kfcv, _run, _rnd, _config):
     c17mols, c17targets, c17tm = curate_data_set(c17mols, c17targets, c17tm, gen_map=True)
 
     if kfcv:
-        kf = KFold(n_splits=10, shuffle=True, random_state=_rnd)
-        mol_locs = np.arange(c17mols.shape[0])
-        for fold_no, (train_index, test_index) in enumerate(kf.split(mol_locs)):
-            train_mols, test_mols = c17mols.iloc[train_index, :], c17mols.iloc[test_index, :]
-            train_mols, train_targets, train_tm = sanitize_data(train_mols, c17targets, c17tm)
-            test_mols, test_targets, test_tm = sanitize_data(test_mols, c17targets, c17tm)
-            train_mols, train_targets, train_tm, train_t_mat = prepare_data(train_mols, train_targets, train_tm, fold_no)
-
-            log_data_structure(train_mols, train_targets, train_tm, imap, "Fold no.%d train" % fold_no, None)
-
-            train_mol_map = pd.DataFrame(data=np.arange(train_mols.shape[0]), columns=['idx'], index=train_mols.index)
-            target_similarity_compounds(train_targets, train_mol_map, "Fold no.%d train")
-            target_similarity_cf(train_t_mat, "Fold no.%d train")
-            train_m_mat = sparse.hstack(train_mols[CMerModel.sp_col].values)
-            train_target_ids = pd.DataFrame(data=np.arange(len(train_targets.index.values)), columns=['idx'],
-                                         index=train_targets.index.values)
-
-            test_tm = test_tm.query("%s in @train_target_ids.index.values" % CMerModel.target_id)
-            unknown_mappings = np.setdiff1d(test_tm.index.values, train_tm.index.values)
-            test_tm = test_tm.loc[unknown_mappings, :]
-            test_mols, test_targets, test_tm = curate_data_set(test_mols, test_targets, test_tm)
-            log_data_structure(test_mols, test_targets, test_tm, imap, "Fold no.%d test" % fold_no , None)
-            test_m_mat = sparse.hstack(test_mols[CMerModel.sp_col].values)
-
-            for rscheme in recommended_weighting_schemes:
-                doc_tf, doc_idf = tfmethods[rscheme['doc']['tf']](train_t_mat), idfmethods[rscheme['doc']['idf']](train_t_mat)
-                q_idf = idfmethods[rscheme['query']['idf']](train_t_mat)
-                t_doc = doc_tf.multiply(doc_idf)
-
-                tfidt_sim(rscheme['query']['tf'], train_t_mat, q_idf, t_doc,
-                          "TFIDF Train Fold %d Target similarity, doc:%s*%s, query:%s*%s" % ( fold_no,
-                              rscheme['doc']['tf'], rscheme['doc']['idf'],
-                              rscheme['query']['tf'], rscheme['query']['idf']))
-
-                csim, dsim = tfidt_sim(rscheme['query']['tf'], train_m_mat, q_idf, t_doc,
-                                       "C17 Train Fold %d TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % ( fold_no,
-                                           t_doc.shape[1], train_m_mat.shape[1], rscheme['doc']['tf'],
-                                           rscheme['doc']['idf'],
-                                           rscheme['query']['tf'],
-                                           rscheme['query']['idf']))
-                csp = mol_target_sim_pos(csim, train_tm)
-                dsp = mol_target_sim_pos(dsim, train_tm)
-                log_np_dict({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
-                            "C17 Train Fold %d TFIDF doc:%s*%s, query:%s*%s similarity positions" % (fold_no,
-                                rscheme['doc']['tf'], rscheme['doc']['idf'],
-                                rscheme['query']['tf'],
-                                rscheme['query']['idf']))
-
-                test_ut = train_target_ids.loc[test_targets.index.values].values.reshape(-1)
-
-                csim, dsim = tfidt_sim(rscheme['query']['tf'], test_m_mat, q_idf, t_doc[:, test_ut],
-                                       "C17 Test Fold %d TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (fold_no,
-                                           t_doc[:, test_ut].shape[1], test_m_mat.shape[1], rscheme['doc']['tf'],
-                                           rscheme['doc']['idf'],
-                                           rscheme['query']['tf'],
-                                           rscheme['query']['idf']))
-                csp = mol_target_sim_pos(csim, test_tm)
-                dsp = mol_target_sim_pos(dsim, test_tm)
-                log_np_dict({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
-                            "C17 Test Fold %d TFIDF doc:%s*%s, query:%s*%s similarity positions" % (fold_no,
-                                rscheme['doc']['tf'], rscheme['doc']['idf'],
-                                rscheme['query']['tf'],
-                                rscheme['query']['idf']))
+        pass
+        # kf = KFold(n_splits=10, shuffle=True, random_state=_rnd)
+        # mol_locs = np.arange(c17mols.shape[0])
+        # for fold_no, (train_index, test_index) in enumerate(kf.split(mol_locs)):
+        #     train_mols, test_mols = c17mols.iloc[train_index, :], c17mols.iloc[test_index, :]
+        #     train_mols, train_targets, train_tm = sanitize_data(train_mols, c17targets, c17tm)
+        #     test_mols, test_targets, test_tm = sanitize_data(test_mols, c17targets, c17tm)
+        #     train_mols, train_targets, train_tm, train_t_mat = prepare_data(train_mols, train_targets, train_tm, fold_no)
+        #
+        #     log_data_structure(train_mols, train_targets, train_tm, imap, "Fold no.%d train" % fold_no, None)
+        #
+        #     train_mol_map = pd.DataFrame(data=np.arange(train_mols.shape[0]), columns=['idx'], index=train_mols.index)
+        #     target_similarity_compounds(train_targets, train_mol_map, "Fold no.%d train")
+        #     target_similarity_cf(train_t_mat, "Fold no.%d train")
+        #     train_m_mat = sparse.hstack(train_mols[CMerModel.sp_col].values)
+        #     train_target_ids = pd.DataFrame(data=np.arange(len(train_targets.index.values)), columns=['idx'],
+        #                                  index=train_targets.index.values)
+        #
+        #     test_tm = test_tm.query("%s in @train_target_ids.index.values" % CMerModel.target_id)
+        #     unknown_mappings = np.setdiff1d(test_tm.index.values, train_tm.index.values)
+        #     test_tm = test_tm.loc[unknown_mappings, :]
+        #     test_mols, test_targets, test_tm = curate_data_set(test_mols, test_targets, test_tm)
+        #     log_data_structure(test_mols, test_targets, test_tm, imap, "Fold no.%d test" % fold_no , None)
+        #     test_m_mat = sparse.hstack(test_mols[CMerModel.sp_col].values)
+        #
+        #     for rscheme in recommended_weighting_schemes:
+        #         doc_tf, doc_idf = tfmethods[rscheme['doc']['tf']](train_t_mat), idfmethods[rscheme['doc']['idf']](train_t_mat)
+        #         q_idf = idfmethods[rscheme['query']['idf']](train_t_mat)
+        #         t_doc = doc_tf.multiply(doc_idf)
+        #
+        #         tfidt_sim(rscheme['query']['tf'], train_t_mat, q_idf, t_doc,
+        #                   "TFIDF Train Fold %d Target similarity, doc:%s*%s, query:%s*%s" % ( fold_no,
+        #                       rscheme['doc']['tf'], rscheme['doc']['idf'],
+        #                       rscheme['query']['tf'], rscheme['query']['idf']))
+        #
+        #         csim, dsim = tfidt_sim(rscheme['query']['tf'], train_m_mat, q_idf, t_doc,
+        #                                "C17 Train Fold %d TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % ( fold_no,
+        #                                    t_doc.shape[1], train_m_mat.shape[1], rscheme['doc']['tf'],
+        #                                    rscheme['doc']['idf'],
+        #                                    rscheme['query']['tf'],
+        #                                    rscheme['query']['idf']))
+        #         csp = mol_target_sim_pos(csim, train_tm)
+        #         dsp = mol_target_sim_pos(dsim, train_tm)
+        #         log_np_dict({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
+        #                     "C17 Train Fold %d TFIDF doc:%s*%s, query:%s*%s similarity positions" % (fold_no,
+        #                         rscheme['doc']['tf'], rscheme['doc']['idf'],
+        #                         rscheme['query']['tf'],
+        #                         rscheme['query']['idf']))
+        #
+        #         test_ut = train_target_ids.loc[test_targets.index.values].values.reshape(-1)
+        #
+        #         csim, dsim = tfidt_sim(rscheme['query']['tf'], test_m_mat, q_idf, t_doc[:, test_ut],
+        #                                "C17 Test Fold %d TFIDF %d Targets %d Compound similarity, doc:%s*%s, query:%s*%s" % (fold_no,
+        #                                    t_doc[:, test_ut].shape[1], test_m_mat.shape[1], rscheme['doc']['tf'],
+        #                                    rscheme['doc']['idf'],
+        #                                    rscheme['query']['tf'],
+        #                                    rscheme['query']['idf']))
+        #         csp = mol_target_sim_pos(csim, test_tm)
+        #         dsp = mol_target_sim_pos(dsim, test_tm)
+        #         log_np_dict({'cosine_sim_pos': csp, 'dice_sim_pos': dsp},
+        #                     "C17 Test Fold %d TFIDF doc:%s*%s, query:%s*%s similarity positions" % (fold_no,
+        #                         rscheme['doc']['tf'], rscheme['doc']['idf'],
+        #                         rscheme['query']['tf'],
+        #                         rscheme['query']['idf']))
     else:
 
         data_sources = []
@@ -255,6 +259,9 @@ def run(kfcv, _run, _rnd, _config):
         c23ut = c17target_ids.loc[c23targets.index.values].values.reshape(-1)
         data_sources.append(DataSourceHolder('C23', c23m_mat, c23tm, (slice(None), c23ut)))
 
+        rscheme_similarity = rscheme_similarity_func(c17t_mat, data_sources)
+
+        # CMerModel.prunner.pool.map(rscheme_similarity, recommended_weighting_schemes)
         for rscheme in recommended_weighting_schemes:
             rscheme_similarity(rscheme, c17t_mat, data_sources)
     sys.exit(0)
