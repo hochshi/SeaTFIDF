@@ -37,7 +37,7 @@ radii_dict = [ {key: val} for key, val in list(product(['filters.radii'], vals))
 target_num_cutoff = [{'filters.filter_mol_by_target_num': val} for val in [{key: val} for key, val in list(product(['cutoff'], [2, 3, 6, 11, 21]))]]
 
 filters_action_list = [
-        'filter_mol_by_target_num'
+        'filter_mol_by_target_num',
         'keep_single_mapping',
         'sanitize'
     ]

@@ -57,6 +57,7 @@ def ppr_factory(_singlton = PandasParallelRunner()):
     # type: (PandasParallelRunner) -> PandasParallelRunner
     return _singlton
 
+
 class arrayHasher:
     
     size = 0
@@ -72,6 +73,9 @@ class arrayHasher:
         self.size = 0
         self.tupToPos = {}
         self.posToTup = {}
+
+    def done(self):
+        pass
         
     def hashArray(self, arr, mers):
         for tup in combinations(arr, mers):
@@ -106,6 +110,69 @@ class arrayHasher:
             return self.tupToPos[key][self.pos_pos]
         except KeyError:
             pass
+            try:
+                return self.posToTup[key]
+            except KeyError:
+                return dflt
+
+
+class SetArrayHasher:
+    size = 0
+    tupToPos = {}
+    posToTup = []
+    seen_pos = 0
+    pos_pos = 1
+
+    def __init__(self, start_pos=0):
+        self.size = start_pos
+
+    def reset(self):
+        self.size = 0
+        self.tupToPos = {}
+        self.posToTup = []
+
+    def done(self):
+        print "Done called"
+        self.tupToPos = dict(zip(self.tupToPos.iterkeys(), xrange(len(self.tupToPos))))
+        self.posToTup = {val: key for key, val in self.tupToPos.iteritems()}
+        self.size = len(self.tupToPos)
+
+
+    def hashArray(self, arr, mers):
+        self.tupToPos.update({key: True for key in combinations(arr, mers)})
+        # arr.sort()
+        # self.tupToPos.update(self.hashArrayRec(arr, mers, False))
+
+    @staticmethod
+    def hashArrayRec(arr, mers, rep):
+        # type: (np.ndarray, int, bool) -> dict
+        if 1 == mers:
+            return {key: True for key in arr}
+        if (rep and len(arr) == 1) or (not rep and len(arr) == mers-1):
+            return {}
+        else:
+            acc = SetArrayHasher.hashArrayRec(arr[1:], mers, rep)
+            if rep:
+                acc.update({arr[0]: SetArrayHasher.hashArrayRec(arr, mers - 1, rep)})
+            else:
+                acc.update({arr[0]: SetArrayHasher.hashArrayRec(arr[1:], mers - 1, rep)})
+            return acc
+
+    def hashArrayWithRep(self, arr, mers):
+        self.tupToPos.update({key: True for key in combinations_with_replacement(arr, mers)})
+        # arr.sort()
+        # self.tupToPos.update(self.hashArrayRec(arr, mers, True))
+
+    def __getitem__(self, key):
+        try:
+            return self.tupToPos[key]
+        except KeyError:
+            return self.posToTup[key]
+
+    def get(self, key, dflt):
+        try:
+            return self.tupToPos[key]
+        except KeyError:
             try:
                 return self.posToTup[key]
             except KeyError:

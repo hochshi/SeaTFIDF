@@ -5,7 +5,8 @@ from log_ingredient import log_np_dict
 import pandas as pd
 from weights import tfmethods
 from typing import Iterable
-
+from numba import jit
+from CMerModel import CMerModel
 
 def cosine(mata, matb):
     # type: (sparse.csc_matrix, sparse.csc_matrix) -> np.ndarray
@@ -162,6 +163,23 @@ def tm_df_to_mat(tm_df):
     return mat.tocsr()
 
 
+def tm_df_to_mat_op(tm_df):
+    # type: (pd.DataFrame) -> np.ndarray
+    """
+    :return sparse.csc_matrix mat: molecules X targets sparse matrix
+    :param pandas.DataFrame tm_df: First index is target id, second is molecule id
+    """
+    # imi = np.array([np.array(val) for val in tm_df.index.values])
+    imi = np.asarray(tm_df.index.values.tolist())
+    target_ids = np.unique(imi[:, 0])
+    mol_ids = np.unique(imi[:, 1])
+    target_map = pd.DataFrame(data=np.arange(len(target_ids)), columns=['pos'], index=target_ids)
+    mol_map = pd.DataFrame(data=np.arange(len(mol_ids)), columns=['pos'], index=mol_ids)
+    return sparse.coo_matrix(
+        ([True] * imi.shape[0], (mol_map.loc[imi[:, 1]].values.reshape(-1), target_map.loc[imi[:, 0]].values.reshape(-1))),
+        shape=(mol_map.shape[0], target_map.shape[0]), dtype=np.bool).todense()
+
+
 def mol_target_sim_pos(sim_mat, check_tm):
     # type: (np.ndarray, pd.DataFrame, pd.DataFrame) -> np.ndarray
     """
@@ -183,6 +201,32 @@ def mol_target_sim_pos(sim_mat, check_tm):
         c_mat[np.arange(max_pos.size), max_pos] = 0
         c_mat.eliminate_zeros()
     # return acc
+    return np.array(acc).transpose()
+
+
+def mol_target_sim_pos_op(sim_mat, check_tm):
+    # type: (np.ndarray, pd.DataFrame, pd.DataFrame) -> np.ndarray
+    """
+    :param numpy.ndarry sim_mat: Similarity matrix of M molecules X N targets
+    :param pandas.DataFrame known_tm: known molecules targets relations
+    :param pandas.DataFrame check_tm: unknown molecules targets relations for which we need to find the positions
+    :rtype numpy.ndarray
+    """
+    return mol_target_find_pos(tm_df_to_mat_op(check_tm), sim_mat)
+
+
+# @jit(nopython=True, nogil=True, cache=True)
+def mol_target_find_pos(c_mat, sim_mat):
+    # type: (np.ndarray, np.ndarray) -> np.ndarray
+    c_mat = np.multiply(c_mat, sim_mat)
+    acc = [np.count_nonzero(c_mat, axis=1).reshape(-1)]
+    while 0 < np.count_nonzero(c_mat):
+        max_vec = c_mat.max(axis=1)
+        max_vec[0 == max_vec] = np.NINF
+        max_pos = c_mat.argmax(axis=1).reshape(-1)
+        acc.append(np.array((sim_mat > max_vec).sum(axis=1)).reshape(-1))
+        sim_mat[np.arange(len(max_pos)), max_pos] = 0
+        c_mat[np.arange(max_pos.size), max_pos] = 0
     return np.array(acc).transpose()
 
 

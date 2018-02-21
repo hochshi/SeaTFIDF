@@ -1,4 +1,5 @@
 from CMerModel import CMerModel, ppr_factory, FunctionHolder, arrayHasher
+from CMerModel import SetArrayHasher
 import numpy as np
 import pandas as pd
 from sacred import Ingredient
@@ -7,15 +8,14 @@ from scipy import sparse
 
 cf_ingredient = Ingredient('cf')
 prunner = ppr_factory()
-imap = arrayHasher()
+# imap = arrayHasher()
+imap = SetArrayHasher()
 
 
 @cf_ingredient.config
 def cfg():
     use_counts = False
     mers = 1
-
-
 
 
 @cf_ingredient.capture

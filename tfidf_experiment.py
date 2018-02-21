@@ -15,6 +15,7 @@
 # r = ex.run(
 #     config_updates = config_updates
 # )
+# /home/shlomoyakh/anaconda2/bin/python tfidf_experiment.py with cf.use_counts=True filters.filter_target_by_mol_num={'cutoff': 9} filters.action_list=['filter_mol_by_target_num', 'filter_target_by_mol_num', 'keep_single_mapping', 'sanitize'] filters.filter_mol_by_target_num={'cutoff': 2} filters.radii={'1': True, '0': True, '2': True} cf.mers=1
 
 
 from sacred import Experiment
@@ -28,7 +29,8 @@ import numpy as np
 from scipy import sparse
 import pandas as pd
 from sklearn.model_selection import KFold
-from similarity_measures import target_similarity_compounds, target_similarity_cf, tfidt_sim, mol_target_sim_pos
+from similarity_measures import target_similarity_compounds, target_similarity_cf, tfidt_sim
+from similarity_measures import mol_target_sim_pos_op as mol_target_sim_pos
 from weights import recommended_weighting_schemes, tfmethods, idfmethods
 import sys
 from typing import Iterable
@@ -46,8 +48,9 @@ class DataSourceHolder:
         self.name, self.mol_mat, self.tm, self.ut_selector = name, mol_mat, tm, ut_selector
 
 
-ex = Experiment('tfidf_experiment', ingredients=[data_ingredient, filter_ingredient, cf_ingredient, log_ingredient], interactive=True)
-ex.observers.append(MongoObserver.create())
+ex = Experiment('tfidf_experiment', ingredients=[data_ingredient, filter_ingredient, cf_ingredient, log_ingredient],
+                interactive=True)
+# ex.observers.append(MongoObserver.create())
 
 
 @ex.config
@@ -95,6 +98,7 @@ def curate_data_set(mols, targets, tm, gen_map=False):
     if gen_map:
         imap.reset()
         gen_indices_map(mols[CMerModel.cf_df].values)
+        imap.done()
     mols[CMerModel.sp_col] = cf_df_to_sp_vec_parallel(mols[CMerModel.cf_df])
     mols, targets, tm = sanitize_data(mols, targets, tm)
     return (mols, targets, tm)
@@ -111,11 +115,13 @@ def log_similarity(q_tf, q_mat, q_idf, doc_term, artifact_name, map_df=None, log
     # type: (str, sparse.csc_matrix, sparse.csc_matrix, sparse.csc_matrix, str, pd.DataFrame, bool) -> None
     sim_gen = tfidt_sim(q_tf, q_mat, q_idf, doc_term)
     for sim_name, sim_mat in sim_gen:
-        key_name = '%s_similarity_matrix' % sim_name
-        log_np_dict({key_name: sim_mat}, sim_name + ' '+ artifact_name)
         if log_sim_pos:
             key_name = '%s_sim_pos' % sim_name
-            log_np_dict({key_name: mol_target_sim_pos(sim_mat, map_df)}, sim_name + ' similarity positions ' + artifact_name)
+            log_np_dict({key_name: mol_target_sim_pos(sim_mat, map_df)},
+                        sim_name + ' similarity positions ' + artifact_name)
+        else:
+            key_name = '%s_similarity_matrix' % sim_name
+            log_np_dict({key_name: sim_mat}, sim_name + ' '+ artifact_name)
 
 
 def prep_rscheme_data(rscheme, t_mat):
@@ -264,4 +270,4 @@ def run(kfcv, _run, _rnd, _config):
         # CMerModel.prunner.pool.map(rscheme_similarity, recommended_weighting_schemes)
         for rscheme in recommended_weighting_schemes:
             rscheme_similarity(rscheme)
-    sys.exit(0)
+    # sys.exit(0)

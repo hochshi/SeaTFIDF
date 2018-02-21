@@ -136,7 +136,7 @@ methods = {
 def filter_data(mol_data, target_data, tm_map, action_list):
     # type: (pd.DataFrame, pd.DataFrame, pd.DataFrame, list) -> (pd.DataFrame, pd.DataFrame, pd.DataFrame)
     for func in action_list:
-        print "running %s" % (str(func))
+        # print "running %s" % (str(func))
         mol_data, target_data, tm_map = methods[func](mol_data, target_data, tm_map)
 
     return (mol_data, target_data, tm_map)
