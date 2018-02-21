@@ -132,7 +132,6 @@ class SetArrayHasher:
         self.posToTup = []
 
     def done(self):
-        print "Done called"
         self.tupToPos = dict(zip(self.tupToPos.iterkeys(), xrange(len(self.tupToPos))))
         self.posToTup = {val: key for key, val in self.tupToPos.iteritems()}
         self.size = len(self.tupToPos)
