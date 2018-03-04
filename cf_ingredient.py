@@ -1,5 +1,7 @@
 from CMerModel import CMerModel, ppr_factory, FunctionHolder, arrayHasher
 from CMerModel import SetArrayHasher
+from CMerModel import ArrayPerfectHasher
+from CMerModel import DictArrayHasher
 import numpy as np
 import pandas as pd
 from sacred import Ingredient
@@ -9,8 +11,8 @@ from scipy import sparse
 cf_ingredient = Ingredient('cf')
 prunner = ppr_factory()
 # imap = arrayHasher()
-imap = SetArrayHasher()
-
+# imap = SetArrayHasher()
+imap = DictArrayHasher()
 
 @cf_ingredient.config
 def cfg():
@@ -23,21 +25,17 @@ def gen_indices_map(cf_counts_dfs, use_counts, mers):
     # type: (list, bool, int) -> object
     if use_counts:
         for df in cf_counts_dfs:
-            imap.hashArrayWithRep(df['feature'].values, mers)
+            imap.hashArrayWithRep(df['feature'].values)
     else:
         for df in cf_counts_dfs:
-            imap.hashArray(df['feature'].values, mers)
+            imap.hashArray(df['feature'].values)
 
 
 def cf_to_sp_vec(indices, mers):
     # type: (list, int) -> sparse.csc_matrix
     if not np.any(np.isnan(indices)) and len(indices) > 0:
-        hash_indices = []
-        for tup in combinations(indices, mers):
-            try:
-                hash_indices.append(imap[tup])
-            except KeyError:
-                continue
+        hash_indices = np.array([imap.get(key, np.nan) for key in combinations(indices, mers)])
+        hash_indices = hash_indices[~np.isnan(hash_indices)]
         return sparse.csc_matrix((np.ones_like(hash_indices, dtype=np.int32), hash_indices, [0, len(hash_indices)]), shape=(imap.size, 1))
     return np.nan
 
@@ -47,7 +45,8 @@ def cf_mat_to_sp_vec(indices_mat, mers):
     if not np.any(np.isnan(indices_mat)) and indices_mat.size > 0:
         comb = combinations(np.repeat(indices_mat[:, 0], indices_mat[:, 1]), mers)
         hash_indices = np.array([imap.get(key, np.nan) for key in comb])
-        indices, data = np.unique(hash_indices[~np.isnan(hash_indices)], return_counts=True)
+        hash_indices = hash_indices[~np.isnan(hash_indices)]
+        indices, data = np.unique(hash_indices, return_counts=True)
         return sparse.csc_matrix((data, indices, [0, len(indices)]), shape=(imap.size, 1))
     return np.nan
 

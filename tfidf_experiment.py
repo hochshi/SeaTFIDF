@@ -34,6 +34,7 @@ from similarity_measures import mol_target_sim_pos_op as mol_target_sim_pos
 from weights import recommended_weighting_schemes, tfmethods, idfmethods
 import sys
 from typing import Iterable
+import logging
 
 
 class DataSourceHolder:
@@ -92,11 +93,11 @@ def add_mol_sp_vec_col(target_df, mols_df, tm_df):
                                                                                mols_df)
     return target_df
 
-
-def curate_data_set(mols, targets, tm, gen_map=False):
+@ex.capture
+def curate_data_set(mols, targets, tm, gen_map, _config):
     mols, targets, tm = filter_data(mols, targets, tm)
     if gen_map:
-        imap.reset()
+        imap.reset(_config['cf']['mers'])
         gen_indices_map(mols[CMerModel.cf_df].values)
         imap.done()
     mols[CMerModel.sp_col] = cf_df_to_sp_vec_parallel(mols[CMerModel.cf_df])
@@ -152,8 +153,8 @@ def rscheme_similarity_func(t_mat, data_sources):
     return rscheme_similarity
 
 @ex.automain
-def run(kfcv, _run, _rnd, _config):
-    # type: (bool, sacred.run.Run, np.random.RandomState, dict) -> None
+def run(kfcv, _run, _rnd, _config, _log):
+    # type: (bool, sacred.run.Run, np.random.RandomState, dict, logging.Logger) -> None
     """
     :param dict _config:
     :param bool kfcv: Injected by sacred, should we run k-fold cross validation
@@ -162,8 +163,10 @@ def run(kfcv, _run, _rnd, _config):
     """
     sim_mats_keys = ['cosine_similarity', 'dice_similarity']
     set_model_params()
+    _log.info("Loading C17 data")
     c17mols, c17targets, c17tm = load_data(_config['dataset']['files'])
-    c17mols, c17targets, c17tm = curate_data_set(c17mols, c17targets, c17tm, gen_map=True)
+    _log.info("Curating C17 dataset")
+    c17mols, c17targets, c17tm = curate_data_set(c17mols, c17targets, c17tm, True)
 
     if kfcv:
         pass
@@ -234,32 +237,42 @@ def run(kfcv, _run, _rnd, _config):
 
         data_sources = []
 
+        _log.info("Preparing C17 data")
         c17mols, c17targets, c17tm, c17t_mat = prepare_data(c17mols, c17targets, c17tm)
         mol_map = pd.DataFrame(data=np.arange(c17mols.shape[0]), columns=['idx'], index=c17mols.index)
+        _log.info("C17 target_similarity_compounds")
         target_similarity_compounds(c17targets, mol_map)
+        _log.info("C17 target_similarity_cf")
         target_similarity_cf(c17t_mat)
+        _log.info("C17 c17m_mat")
         c17m_mat = sparse.hstack(c17mols[CMerModel.sp_col].values)
         c17target_ids = pd.DataFrame(data=np.arange(len(c17targets.index.values)), columns=['idx'], index=c17targets.index.values)
 
         data_sources.append(DataSourceHolder('C17', c17m_mat, c17tm, (slice(None), slice(None))))
 
+        _log.info("Loading C20 data")
         c20mols, c20targets, c20tm = load_data(_config['dataset']['c20files'])
         c20tm = c20tm.query("%s in @c17target_ids.index.values" %CMerModel.target_id)
         unknown_mappings = np.setdiff1d(c20tm.index.values, c17tm.index.values)
         c20tm = c20tm.loc[unknown_mappings, :]
-        c20mols, c20targets, c20tm = curate_data_set(c20mols, c20targets, c20tm)
+        _log.info("Curating C20 dataset")
+        c20mols, c20targets, c20tm = curate_data_set(c20mols, c20targets, c20tm, False)
         log_data_structure(c20mols, c20targets, c20tm, imap, "C20", None)
+        _log.info("C20 c20m_mat")
         c20m_mat = sparse.hstack(c20mols[CMerModel.sp_col].values)
 
         c20ut = c17target_ids.loc[c20targets.index.values].values.reshape(-1)
         data_sources.append(DataSourceHolder('C20', c20m_mat, c20tm, (slice(None), c20ut)))
 
+        _log.info("Loading C23 data")
         c23mols, c23targets, c23tm = load_data(_config['dataset']['c20files'])
         c23tm = c23tm.query("%s in @c17target_ids.index.values" %CMerModel.target_id)
         unknown_mappings = np.setdiff1d(c23tm.index.values, c17tm.index.values)
         c23tm = c23tm.loc[unknown_mappings, :]
-        c23mols, c23targets, c23tm = curate_data_set(c23mols, c23targets, c23tm)
+        _log.info("Curating C23 dataset")
+        c23mols, c23targets, c23tm = curate_data_set(c23mols, c23targets, c23tm, False)
         log_data_structure(c23mols, c23targets, c23tm, imap, "C23", None)
+        _log.info("C23 c23m_mat")
         c23m_mat = sparse.hstack(c23mols[CMerModel.sp_col].values)
 
         c23ut = c17target_ids.loc[c23targets.index.values].values.reshape(-1)
@@ -269,5 +282,6 @@ def run(kfcv, _run, _rnd, _config):
 
         # CMerModel.prunner.pool.map(rscheme_similarity, recommended_weighting_schemes)
         for rscheme in recommended_weighting_schemes:
+            _log.info("%s" %str(rscheme))
             rscheme_similarity(rscheme)
     # sys.exit(0)

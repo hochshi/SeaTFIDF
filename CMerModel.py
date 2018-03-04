@@ -11,6 +11,8 @@ from itertools import combinations, combinations_with_replacement
 from functools import reduce
 from scipy import sparse
 
+from np_perfect_hash import generate_hash, Hash1
+
 
 class FunctionHolder:
     
@@ -49,7 +51,8 @@ class PandasParallelRunner:
 
     def p_df(self, df, func_holder):
         df_split = np.array_split(df, self.num_partitions)
-        df = pd.concat(self.pool.map(self.p_df_run, product(df_split, [func_holder])))
+        # df = pd.concat(self.pool.map(self.p_df_run, product(df_split, [func_holder])))
+        df = df.apply(func_holder.func, args=func_holder.args)
         return df
 
 
@@ -176,6 +179,128 @@ class SetArrayHasher:
                 return self.posToTup[key]
             except KeyError:
                 return dflt
+
+
+class ArrayPerfectHasher:
+    size = 0
+    mers = 1
+
+    _added_values = {}
+
+    tupmap = np.array([])
+    valmap = pd.DataFrame([])
+
+    def __init__(self):
+        pass
+
+    def reset(self, mers):
+        assert 1 == mers or 2 == mers
+        self.size = 0
+        self.mers = mers
+        self._added_values = {}
+        self.valmap = pd.DataFrame([])
+
+    def done(self):
+        self.valmap = pd.DataFrame(range(len(self._added_values)), columns=['ID'], index=self._added_values.keys())
+        if 2 == self.mers:
+            self.size = self.valmap.ID.values[-1] * 2**32 + self.valmap.ID.values[-1] + 1
+        else:
+            self.size = self.valmap.ID.values[-1] + 1
+        # self._added_values = None
+
+    def hashArray(self, arr):
+        self._added_values.update({key: True for key in arr})
+
+    def hashArrayWithRep(self, arr):
+        self._added_values.update({key: True for key in arr})
+
+    def __getitem__(self, keys):
+        return self.tup_lookup(keys)
+        pass
+
+    def tup_lookup(self, keys):
+        # type: (np.ndarray) -> np.ndarray
+        keys = self.key_lookup(keys)
+        if 2 == self.mers:
+            keys = keys[~np.isnan(keys).any(axis=1)].astype(np.int64)
+            return np.left_shift(keys[:,0], 32) + keys[:,1]
+        else:
+            return keys[~np.isnan(keys)]
+
+    def key_lookup(self, keys):
+        # type: (np.ndarray) -> np.ndarray
+        return self.valmap.loc[keys.reshape(-1), 'ID'].values.reshape(keys.shape)
+
+    def __len__(self):
+        return self.size
+
+class DictArrayHasher:
+    size = 0
+    holder = {}
+    mers = 1
+
+    def __init__(self):
+        pass
+
+    def reset(self, mers):
+        assert 1 == mers or 2 ==mers
+        self.size = 0
+        self.mers = mers
+        self.holder = {}
+        if 1 == mers:
+            self.hashArray = self.hashArray1
+            self.done = self.done1
+            self.__getitem__ = self.get1
+        else:
+            self.hashArray = self.hashArray2
+            self.done = self.done2
+            self.__getitem__ = self.get2
+
+    def done1(self):
+        self.holder = dict(zip(self.holder.keys(), xrange(len(self.holder.keys()))))
+        self.size = len(self.holder.keys())
+
+    def done2(self):
+        counter = 0
+        for key in self.holder.keys():
+            self.holder[key] = dict(zip(self.holder[key].keys(), range(counter, counter + len(self.holder[key].keys()))))
+            counter = counter + len(self.holder[key].keys())
+        self.size = counter
+
+    def hashArray1(self, arr):
+        self.holder.update({key: True for key in arr})
+
+    def hashArray2(self, arr):
+        tmp = {}
+        for idx, key in enumerate(arr[:-1]):
+            tmp[key] = {l: True for l in arr[(idx + 1):]}
+        self.holder.update(tmp)
+
+    def hashArrayWithRep1(self, arr):
+        self.holder.update({key: True for key in arr})
+
+    def hashArrayWithRep2(self, arr):
+        tmp = {}
+        for idx, key in enumerate(arr):
+            tmp[key] = {l: True for l in arr[idx:]}
+        self.holder.update(tmp)
+
+    def get1(self, key):
+        try:
+            return self.holder[key[0]]
+        except KeyError:
+            return None
+
+    def get2(self, key):
+        try:
+            return self.holder[key[0]][key[1]]
+        except KeyError:
+            return None
+
+    def get(self, key, dflt):
+        ret = self[key]
+        return ret if ret is not None else dflt
+
 
 class CMerModel:
     mers=2
